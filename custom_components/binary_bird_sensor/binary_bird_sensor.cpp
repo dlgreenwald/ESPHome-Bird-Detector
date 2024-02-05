@@ -89,7 +89,7 @@ std::shared_ptr<esphome::esp32_camera::CameraImage> BinaryBirdSensor::wait_for_i
 
 float BinaryBirdSensor::get_setup_priority() const { return setup_priority::LATE; }
 
-bool BinaryBirdSensor::classify(esphome::esp32_camera::CameraImage image){
+void BinaryBirdSensor::classify(std::shared_ptr<esphome::esp32_camera::CameraImage> image ){
     snapshot_buf = (uint8_t *)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
 
     // check if allocation was successful
@@ -135,9 +135,9 @@ bool BinaryBirdSensor::classify(esphome::esp32_camera::CameraImage image){
     return;
 }
 
-void BinaryBirdSensor::saveToSDcard(esphome::esp32_camera::CameraImage image) {
-  uint8_t *frame_buf = image.get_data_buffer();
-  size_t buf_len = image.get_data_length();
+void BinaryBirdSensor::saveToSDcard(std::shared_ptr<esphome::esp32_camera::CameraImage> image ) {
+  uint8_t *frame_buf = image->get_data_buffer();
+  size_t buf_len = image->get_data_length();
 
   auto t = this->time_->now();
   if (!t.is_valid()) {
@@ -184,10 +184,10 @@ void BinaryBirdSensor::saveToSDcard(esphome::esp32_camera::CameraImage image) {
  * @retval     false if not initialised, image captured, rescaled or cropped failed
  *
  */
-bool BinaryBirdSensor::ei_camera_capture(esphome::esp32_camera::CameraImage image, uint32_t img_width, uint32_t img_height, uint8_t *out_buf) {
+bool BinaryBirdSensor::ei_camera_capture(std::shared_ptr<esphome::esp32_camera::CameraImage> image , uint32_t img_width, uint32_t img_height, uint8_t *out_buf) {
   bool do_resize = false;
 
-  camera_fb_t *fb = image.get_raw_buffer();
+  camera_fb_t *fb = image->get_raw_buffer();
 
   if (!fb) {
     ESP_LOGE("Camera capture failed\n");

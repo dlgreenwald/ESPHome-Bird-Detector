@@ -28,5 +28,5 @@ async def to_code(config):
     cg.add_library("FFat", "2.0.0")
     cg.add_library("LittleFS", "2.0.0")
     cg.add_library("holgerlembke/ESP32 File Manager for Generation Klick ESPFMfGK ", "^2.0.10")
-    cg.add_library(None, None, "file:///config/bird_detector/src/")
+    cg.add_library(None, None, "https://github.com/dlgreenwald/ESPHome-Bird-Detector/raw/main/lib/ei-bird-classifier-arduino-1.0.5.zip")
     await cg.register_component(server, config)

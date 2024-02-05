@@ -17,9 +17,9 @@ class BinaryBirdSensor : public binary_sensor::BinarySensor, public PollingCompo
   
  protected:
   static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr);
-  bool ei_camera_capture(esphome::esp32_camera::CameraImage image, uint32_t img_width, uint32_t img_height, uint8_t *out_buf);
-  void saveToSDcard(esphome::esp32_camera::CameraImage image);
-  void classify(esphome::esp32_camera::CameraImage image);
+  bool ei_camera_capture(std::shared_ptr<esphome::esp32_camera::CameraImage> image, uint32_t img_width, uint32_t img_height, uint8_t *out_buf);
+  void saveToSDcard(std::shared_ptr<esphome::esp32_camera::CameraImage> image);
+  void classify(std::shared_ptr<esphome::esp32_camera::CameraImage> image);
   std::shared_ptr<esphome::esp32_camera::CameraImage> wait_for_image_();
 
   SemaphoreHandle_t semaphore_;
