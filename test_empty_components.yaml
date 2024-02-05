@@ -1,0 +1,44 @@
+# this configuration file has all empty custom components set up.
+# use 'esphome compile test_empty_components.yaml' to build. 
+#  libraries: src/
+
+#The moment src/ below is added, things stop compiling.  Adding the libraries in above it gets it working again.
+#I definitely do not wish to list all the libaries in this config but ¯\_(ツ)_/¯
+
+esphome:
+
+packages:
+  device: !include device.yaml # include our test device setup
+
+wifi:
+  ssid: "Example Network"
+  password: "Example Password"
+
+esp32_sdmmc:
+  id: foo
+
+time:
+  - platform: sntp
+    timezone: "America/New_York"
+
+esp32_camera:
+  external_clock:
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_pins:
+    sda: GPIO26
+    scl: GPIO27
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  power_down_pin: GPIO32
+
+  name: My Camera
+
+esp32_SD_FileManager:
+  name: filemanager
+
+binary_sensor:
+  - platform: binary_bird_sensor
+    name: Bird Feeder
