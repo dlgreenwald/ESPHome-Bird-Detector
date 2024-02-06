@@ -3,6 +3,7 @@
 #include "SD_MMC.h"
 #include "FS.h"
 #include <ESPFMfGK.h>
+#include "esphome/components/esp32_sdmmc/esp32_sdmmc.h"
 
 namespace esphome {
 namespace esp32_sd_filemanager {
@@ -39,8 +40,9 @@ float ESP32SDFM::get_setup_priority() const { return setup_priority::WIFI; }
 
 
 void ESP32SDFM::loop() {
-  //@TODO Wrap handle client in a MUTEX controlled by a new SD_MMC component
-    filemgr.handleClient();
+  esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock();
+  filemgr.handleClient();
+  esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock();
 }
 
 void ESP32SDFM::dump_config() {

@@ -5,6 +5,7 @@
 #include "esphome/components/time/real_time_clock.h"
 #include "Bird-classifier_inferencing.h"
 #include "edge-impulse-sdk/dsp/image/processing.hpp"
+#include "esphome/components/esp32_sdmmc/esp32_sdmmc.h"
 
 namespace esphome {
 namespace binary_bird_sensor {
@@ -153,6 +154,8 @@ void BinaryBirdSensor::saveToSDcard(std::shared_ptr<esphome::esp32_camera::Camer
   //dir for photos
   const char *bird_path = "/Photos";
 
+esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock();
+
   fs::FS &fs = SD_MMC;
   if (fs.mkdir(bird_path)) {
     ESP_LOGI("path created");
@@ -171,6 +174,8 @@ void BinaryBirdSensor::saveToSDcard(std::shared_ptr<esphome::esp32_camera::Camer
     ESP_LOGI("Saved file to path: %s\n", path.c_str());
   }
   file.close();
+
+  esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock();
 }
 
 /**

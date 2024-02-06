@@ -6,7 +6,7 @@ esp32_sd_filemanager_ns = cg.esphome_ns.namespace('esp32_sd_filemanager')
 
 ESP32SDFM = esp32_sd_filemanager_ns.class_('ESP32SDFM', cg.Component)
 
-DEPENDENCIES = ["esp32"]
+DEPENDENCIES = ["esp32", "esp32_sdmmc"]
 AUTO_LOAD = ["psram"]
 
 CONFIG_SCHEMA = cv.ENTITY_BASE_SCHEMA.extend(

@@ -7,7 +7,7 @@ binary_bird_sensor_ns = cg.esphome_ns.namespace('binary_bird_sensor')
 
 BinaryBirdSensor = binary_bird_sensor_ns.class_('BinaryBirdSensor', binary_sensor.BinarySensor, cg.Component)
 
-DEPENDENCIES = ["esp32_camera", "time"]
+DEPENDENCIES = ["esp32_camera", "time", "esp32_sdmmc"]
 
 CONFIG_SCHEMA = binary_sensor.BINARY_SENSOR_SCHEMA.extend({
     cv.GenerateID(): cv.declare_id(BinaryBirdSensor),
