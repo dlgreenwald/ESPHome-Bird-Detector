@@ -47,7 +47,6 @@ void ESP32SDFM::loop() {
 
 void ESP32SDFM::dump_config() {
     ESP_LOGCONFIG(TAG, "SD File Manager");
-    ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
     if (this->is_failed()) {
         ESP_LOGE(TAG, "  Setup Failed");
     }
