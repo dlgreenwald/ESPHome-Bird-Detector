@@ -1,14 +1,15 @@
 # this configuration file has all empty custom components set up.
 # use 'esphome compile test_empty_components.yaml' to build. 
-#  libraries: src/
-
-#The moment src/ below is added, things stop compiling.  Adding the libraries in above it gets it working again.
-#I definitely do not wish to list all the libaries in this config but ¯\_(ツ)_/¯
 
 esphome:
 
 packages:
   device: !include device.yaml # include our test device setup
+
+external_components:
+  - source:
+      type: local
+      path: components
 
 wifi:
   ssid: "Example Network"
