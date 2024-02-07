@@ -2,6 +2,9 @@
 # use 'esphome compile test_empty_components.yaml' to build. 
 
 esphome:
+  # includes: src/
+  # libraries:
+  #  - ottowinter/ESPAsyncWebServer-esphome@3.1.0
 
 packages:
   device: !include device.yaml # include our test device setup
@@ -39,6 +42,7 @@ esp32_camera:
 
 esp32_SD_FileManager:
   name: filemanager
+  port: 8080
 
 binary_sensor:
   - platform: binary_bird_sensor
