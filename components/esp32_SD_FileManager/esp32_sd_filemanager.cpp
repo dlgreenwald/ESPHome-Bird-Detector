@@ -1,26 +1,25 @@
 #include "esp32_sd_filemanager.h"
 
-#include <Arduino.h>
+//#include <Arduino.h>
+//#include <sys/stat.h>
 
-#include "esphome/core/application.h"
-#include "esphome/core/hal.h"
-#include "esphome/core/helpers.h"
+//#include "esphome/core/application.h"
+//#include "esphome/core/hal.h"
+//#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
-#include "esphome/core/util.h"
+//#include "esphome/core/util.h"
 
-#include <cstdlib>
+//#include <cstdlib>
 #include <esp_http_server.h>
-#include <utility>
+//#include <utility>
 
-#include <FS.h>
-#include <SD.h>
-#include <LittleFS.h>
+//#include <FS.h>
+//#include <SD.h>
 #include <SD_MMC.h>
-#include <FFat.h>
 #include "esphome/components/esp32_sdmmc/esp32_sdmmc.h"
-#include "ESPFMfGKWp.h"
-#include "ESPFMfGKWpF2.h"
-#include "protocol_examples_utils.h"
+#include <sys/param.h>
+#include "upload_script.h"
+#include "favicon.h"
 
 namespace esphome {
 namespace esp32_sd_filemanager {
@@ -36,83 +35,8 @@ void ESP32SDFM::setup() {
     this->mark_failed();
     return;
   }
-  if (!this->AddFS(SD_MMC, "SD-MMC-Card", false)) {
-      mark_failed();
-      ESP_LOGE(TAG, "Adding SD_MMC failed.");
-      return;
-  }
 
-  this->WebPageTitle = "FileManager";
-  this->BackgroundColor = "white";
-  this->textareaCharset = "accept-charset=\"utf-8\"";
-  
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = this->port_;
-  config.ctrl_port = this->port_;
-  config.max_open_sockets = 1;
-  config.backlog_conn = 2;
-  config.lru_purge_enable = true;
-
-  if (httpd_start(&this->httpd_, &config) != ESP_OK) {
-    mark_failed();
-    return;
-  }
-  httpd_uri_t index = {
-      .uri = "/",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->index_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &index);
-
-  httpd_uri_t css = {
-      .uri = "/fm.css",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->CSS_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &css);
-
-  httpd_uri_t js = {
-      .uri = "/fm.js",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->JS_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &js);
-
-  httpd_uri_t fileListInsert = {
-      .uri = "/i",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->FileListInsert_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &fileListInsert);
-
-  httpd_uri_t bootInfo = {
-      .uri = "/b",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->BootInfo_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &bootInfo);
-
-  httpd_uri_t job = {
-      .uri = "/job",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->job_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &job);
-
-  httpd_uri_t interface = {
-      .uri = "/if",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->HtmlIncludesInterface_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &interface);
-
-  httpd_uri_t ok = {
-      .uri = "/r",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((ESP32SDFM *) req->user_ctx)->ReceiverOK_handler_(req); },
-      .user_ctx = this};
-  httpd_register_uri_handler(this->httpd_, &ok);
-
+  start_file_server("/");
 }
 
 float ESP32SDFM::get_setup_priority() const { return setup_priority::LATE; }
@@ -129,1233 +53,475 @@ void ESP32SDFM::dump_config() {
     }
 }
 
-bool ESP32SDFM::AddFS(fs::FS &fs, String FSname, bool AutoTreemode)
+/* Handler to redirect incoming GET request for /index.html to /
+ * This can be overridden by uploading file with same name */
+esp_err_t ESP32SDFM::index_html_get_handler(httpd_req_t *req)
 {
-  // Add into first slot, if empty. Else always add into second.
-  if (maxfilesystem < maxfilesystems)
-  {
-    fsinfo[maxfilesystem].filesystem = &fs;
-    fsinfo[maxfilesystem].fsname = FSname;
-    fsinfo[maxfilesystem].AutoTreemode = AutoTreemode;
-    maxfilesystem++;
-    return true;
-  }
-  return false;
+    httpd_resp_set_status(req, "307 Temporary Redirect");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, NULL, 0);  // Response body can be empty
+    return ESP_OK;
 }
 
-esp_err_t ESP32SDFM::index_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  
-  res = httpd_resp_set_type(req,  "text/html");
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-    return res;
-  }
-    if (res == ESP_OK) {
-    res = httpd_resp_send(req, PSTR(ESPFMfGKWpindexpage), strlen(PSTR(ESPFMfGKWpindexpage)));
-  }
-  //no need to send empy chunk to signal end as this codepath only has one send.
-  return res;
+/* Handler to respond with an icon file embedded in flash.
+ * Browsers expect to GET website icon at URI /favicon.ico.
+ * This can be overridden by uploading file with same name */
+esp_err_t ESP32SDFM::favicon_get_handler(httpd_req_t *req)
+{
+
+    httpd_resp_set_type(req, "image/x-icon");
+    httpd_resp_send(req, favicon,  8518);
+    return ESP_OK;
 }
 
-esp_err_t ESP32SDFM::HtmlIncludesInterface_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  
-  httpd_resp_set_status(req, HTTPD_404);
-  httpd_resp_send(req, NULL, 0);  // Response body can be empty
+/* Send HTTP response with a run-time generated html consisting of
+ * a list of all files and folders under the requested path.
+ * In case of SPIFFS this returns empty list when path is any
+ * string other than '/', since SPIFFS doesn't support directories */
+esp_err_t ESP32SDFM::http_resp_dir_html(httpd_req_t *req, const char *dirpath)
+{
+    char entrypath[FILE_PATH_MAX];
+    char entrysize[16];
+    const char *entrytype;
 
-  //no need to send empy chunk to signal end as this codepath only has one send.
-  return res;
-}
+    File dir = SD_MMC.open(dirpath);
+    const size_t dirpath_len = strlen(dirpath);
 
-esp_err_t ESP32SDFM::ReceiverOK_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  
-  httpd_resp_set_status(req, HTTPD_200);
-  httpd_resp_send(req, NULL, 0);  // Response body can be empty
+    /* Retrieve the base path of file storage to construct the full path */
+    strlcpy(entrypath, dirpath, sizeof(entrypath));
 
-  //no need to send empy chunk to signal end as this codepath only has one send.
-  return res;
-}
-
-esp_err_t ESP32SDFM::CSS_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  
-  res = httpd_resp_set_type(req,  "text/css");
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-    return res;
-  }
-    if (res == ESP_OK) {
-    res = httpd_resp_send(req, PSTR(ESPFMfGKWpcss), strlen(PSTR(ESPFMfGKWpcss)));
-  }
-
-  //no need to send empy chunk to signal end as this codepath only has one send.
-  return res;
-}
-
-esp_err_t ESP32SDFM::JS_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  
-  res = httpd_resp_set_type(req,  "text/javascript");
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-    return res;
-  }
-    if (res == ESP_OK) {
-    res = httpd_resp_send(req, PSTR(ESPFMfGKWpjavascript), strlen(PSTR(ESPFMfGKWpjavascript)));
-  }
-  //no need to send empy chunk to signal end as this codepath only has one send.
-  return res;
-}
-
-esp_err_t ESP32SDFM::FileListInsert_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  queryParams params;
-
-  esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock();
-
-  res = extractQueryParams(req, params);
-  if (res != ESP_OK){
-    ESP_LOGE(TAG, "Failure to parse query params");
-    return res;
-  }
-
-  // get the file system. all safe.
-  int fsi = getFileSystemIndex(params);
-  bool sit = ShowInTreeView(params);
-  String path = CurrentPath(params);
-  int maxtiefe = 0;
-  for (int i = 0; i < path.length(); i++)
-  {
-    if (path.charAt(i) == '/')
-    {
-      maxtiefe++;
+    if (!dir) {
+        ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
+        /* Respond with 404 Not Found */
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Directory does not exist");
+        return ESP_FAIL;
     }
-  }
 
-  // Flat view: immer im Root beginnen
-  if ((!sit) || (path == ""))
-  {
-    path = "/";
-  }
+    /* Send HTML file header */
+    httpd_resp_sendstr_chunk(req, "<!DOCTYPE html><html><body>");
 
-  /** /
-  Serial.print("fsi: ");
-  Serial.print(fsi);
-  Serial.print(" sit: ");
-  Serial.print(sit);
-  Serial.print(" maxtiefe: ");
-  Serial.print(maxtiefe);
-  Serial.print(" path: ");
-  Serial.print(path);
-  Serial.println();
-  /**/
+    // /* Get handle to embedded file upload script */
 
-  res = httpd_resp_set_type(req,  "text/html");
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-    return res;
-  }
+    // /* Add file upload form and script which on execution sends a POST request to /upload */
+   httpd_resp_send_chunk(req, uploadScript, strlen(uploadScript));
 
-  gzipperexists = ((fsinfo[fsi].filesystem->exists("/gzipper.js.gz")) ||
-                   (fsinfo[fsi].filesystem->exists("/gzipper.js")));
+    /* Send file-list table definition and column labels */
+    httpd_resp_sendstr_chunk(req,
+        "<table class=\"fixed\" border=\"1\">"
+        "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
+        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th></tr></thead>"
+        "<tbody>");
 
-  //GOOD TO HERE
+    /* Iterate over all files / folders and fetch their names and sizes */
+    File file = dir.openNextFile();
+    while (file) {
+        entrytype = (file.isDirectory() ? "directory" : "file");
 
-  int linecounter = 0;
-  recurseFolder(req, params, path, !sit, maxtiefe, true, linecounter);
+        strlcpy(entrypath + dirpath_len, file.name(), sizeof(entrypath) - dirpath_len);
+        // if (stat(entrypath, &entry_stat) == -1) {
+        //     ESP_LOGE(TAG, "Failed to stat %s : %s", entrytype, entry->d_name);
+        //     continue;
+        // }
+        sprintf(entrysize, "%ld", file.size());
+        ESP_LOGI(TAG, "Found %s : %s (%s bytes)", entrytype, file.name(), entrysize);
 
-  String cache = antworttrenner + "<span title=\"";
-
-  for (uint8_t i = 0; i < maxfilesystem; i++)
-  {
-    cache += "FS " + String(i) + ": " + fsinfo[i].fsname + "\n";
-  }
-  cache += "\">&nbsp; Size: " +
-           dispFileString(totalBytes(fsinfo[fsi].filesystem), true) +
-           ", used: " +
-           dispFileString(usedBytes(fsinfo[fsi].filesystem), true) +
-           "</span>";
-
-  cache += antworttrenner;
-  cache += "<select id=\"memory\" name=\"memory\" onchange=\"fsselectonchange();\">";
-  for (int i = 0; i < maxfilesystem; i++)
-  {
-    if (i == fsi)
-    {
-      cache += "<option selected";
-    }
-    else
-    {
-      cache += "<option";
-    }
-    cache += ">" + fsinfo[i].fsname + "</option>";
-  }
-  cache += "</select>";
-
-  cache += "<input type=\"checkbox\" id=\"treeview\" name=\"treeview\" onchange=\"fsselectonchange();\"";
-  if (ShowInTreeView(params))
-  {
-    cache += " checked ";
-  }
-  cache += "/><label for=\"treeview\">Folders</label>";
-
-  res = httpd_resp_send_chunk(req, cache.c_str(), cache.length());
-  // The End.
-
-  //Respond with an empty chunk to signal HTTP response completion
-  httpd_resp_send_chunk(req, NULL, 0);
-
-  esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock();
-
-  return res;
-}
-
-esp_err_t ESP32SDFM::BootInfo_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-
-  // hier kann man die globalen Stati initialisieren, weil man weiß, dass die Webseite gerade frisch geladen wird.
-  lastFileSystemIndex = -1;
-
-  String fsinfos = "";
-  for (uint8_t i = 0; i < maxfilesystem; i++)
-  {
-    fsinfos += String(i) + ": " + fsinfo[i].fsname + " ";
-  }
-
-  String cache =             //
-      BackgroundColor +      //
-      extrabootinfotrenner + //
-      ExtraHTMLfoot +        //
-      extrabootinfotrenner + //
-      WebPageTitle +         //
-      extrabootinfotrenner +
-      fsinfos +
-      extrabootinfotrenner +
-      HtmlIncludes;
-
-  res = httpd_resp_set_type(req,  "text/html");
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-    return res;
-  }
-
-  res = httpd_resp_send(req, cache.c_str(), cache.length());
-
-  //no need to send empy chunk to signal end as this codepath only has one send.
-  return res;
-}
-
-esp_err_t ESP32SDFM::job_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-  queryParams params;
-
-  esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock();
-
-  res = extractQueryParams(req, params);
-
-  if (params.num >= 3)
-  { // https://www.youtube.com/watch?v=KSxTxynXiBs
-    String jobname = params.job;
-    if (jobname == "del")
-    {
-      String fn = getFileNameFromParam(params, flagCanDelete);
-      /** /
-      Serial.print("Delete: ");
-      Serial.print(fn);
-      Serial.println();
-      /**/
-      if (fn == "")
-      {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-        return res;
-      }
-      fsinfo[getFileSystemIndex(params)].filesystem->remove(fn);
-      // dummy answer
-      res = httpd_resp_set_type(req,  "text/plain");
-      if (res != ESP_OK) {
-        ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-      }
-      res = httpd_resp_send_chunk(req, "", 0);
-      return res;
-      // Raus.
-    }
-    else if (jobname == "ren")
-    {
-      String fn = getFileNameFromParam(params, flagCanRename);
-      String newfn = params.new_;
-      /** /
-      Serial.print("Rename: ");
-      Serial.print(fn);
-      Serial.print(" new: ");
-      Serial.print(newfn);
-      Serial.println();
-      /**/
-      if (fn == "")
-      {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-        return res;
-      }
-      if (!newfn.startsWith("/"))
-      {
-        newfn = "/" + newfn;
-      }
-      int fsi = getFileSystemIndex(params);
-
-      if (pathname(fn) == pathname(newfn))
-      {
-        if (!fsinfo[fsi].filesystem->rename(fn, newfn))
-        {
-          Serial.println(F("Rename failed (1)."));
+        /* Send chunk of HTML file containing table entries with file name and size */
+        httpd_resp_sendstr_chunk(req, "<tr><td><a href=\"");
+        httpd_resp_sendstr_chunk(req, req->uri);
+        httpd_resp_sendstr_chunk(req, file.name());
+        if (file.isDirectory()) {
+            httpd_resp_sendstr_chunk(req, "/");
         }
-      }
-      else
-      {
-        if (!CopyMoveFile(params, fn, newfn, true))
-        {
-          Serial.println(F("Rename failed (2)."));
+        httpd_resp_sendstr_chunk(req, "\">");
+        httpd_resp_sendstr_chunk(req, file.name());
+        httpd_resp_sendstr_chunk(req, "</a></td><td>");
+        httpd_resp_sendstr_chunk(req, entrytype);
+        httpd_resp_sendstr_chunk(req, "</td><td>");
+        httpd_resp_sendstr_chunk(req, entrysize);
+        httpd_resp_sendstr_chunk(req, "</td><td>");
+        httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/delete");
+        httpd_resp_sendstr_chunk(req, req->uri);
+        httpd_resp_sendstr_chunk(req, file.name());
+        httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Delete</button></form>");
+        httpd_resp_sendstr_chunk(req, "</td></tr>\n");
+
+        file = dir.openNextFile();
+    }
+    dir.close();
+
+    /* Finish the file list table */
+    httpd_resp_sendstr_chunk(req, "</tbody></table>");
+
+    /* Send remaining chunk of HTML file to complete it */
+    httpd_resp_sendstr_chunk(req, "</body></html>");
+
+    /* Send empty chunk to signal HTTP response completion */
+    httpd_resp_sendstr_chunk(req, NULL);
+    return ESP_OK;
+}
+
+#define IS_FILE_EXT(filename, ext) \
+    (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
+
+/* Set HTTP response content type according to file extension */
+esp_err_t ESP32SDFM::set_content_type_from_file(httpd_req_t *req, const char *filename)
+{
+    if (IS_FILE_EXT(filename, ".htm") || IS_FILE_EXT(filename, ".html")) {
+      return httpd_resp_set_type(req, "text/html");
+    } else if (IS_FILE_EXT(filename, ".css")) {
+      return httpd_resp_set_type(req, "text/css");
+    } else if (IS_FILE_EXT(filename, ".js")) {
+      return httpd_resp_set_type(req, "application/javascript");
+    } else if (IS_FILE_EXT(filename, ".png")) {
+      return httpd_resp_set_type(req, "image/png");
+    } else if (IS_FILE_EXT(filename, ".gif")) {
+      return httpd_resp_set_type(req, "image/gif");
+    } else if (IS_FILE_EXT(filename, ".jpg") || IS_FILE_EXT(filename, ".jpeg")) {
+      return httpd_resp_set_type(req, "image/jpeg");
+    } else if (IS_FILE_EXT(filename, ".ico")) {
+      return httpd_resp_set_type(req, "image/x-icon");
+    } else if (IS_FILE_EXT(filename, ".xml")) {
+      return httpd_resp_set_type(req, "text/xml");
+    } else if (IS_FILE_EXT(filename, ".pdf")) {
+      return httpd_resp_set_type(req, "application/pdf");
+    } else if (IS_FILE_EXT(filename, ".zip")) {
+      return httpd_resp_set_type(req, "application/zip");
+    } else if (IS_FILE_EXT(filename, ".ico")) {
+      return httpd_resp_set_type(req, "image/x-icon");
+    }
+
+    /* This is a limited set only */
+    /* For any other type always set as plain text */
+    return httpd_resp_set_type(req, "text/plain");
+}
+
+/* Copies the full path into destination buffer and returns
+ * pointer to path (skipping the preceding base path) */
+const char* ESP32SDFM::get_path_from_uri(char *dest, const char *base_path, const char *uri, size_t destsize)
+{
+    const size_t base_pathlen = strlen(base_path);
+    size_t pathlen = strlen(uri);
+
+    const char *quest = strchr(uri, '?');
+    if (quest) {
+        pathlen = MIN(pathlen, quest - uri);
+    }
+    const char *hash = strchr(uri, '#');
+    if (hash) {
+        pathlen = MIN(pathlen, hash - uri);
+    }
+
+    if (base_pathlen + pathlen + 1 > destsize) {
+        /* Full path string won't fit into destination buffer */
+        return NULL;
+    }
+
+    /* Construct full path (base + path) */
+    strcpy(dest, base_path);
+    strlcpy(dest + base_pathlen, uri, pathlen + 1);
+
+    /* Return pointer to path, skipping the base */
+    return dest + base_pathlen;
+}
+
+/* Handler to download a file kept on the server */
+esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
+{
+    char filepath[FILE_PATH_MAX];
+
+    const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
+                                             req->uri, sizeof(filepath));
+    if (!filename) {
+        ESP_LOGE(TAG, "Filename is too long");
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
+        return ESP_FAIL;
+    }
+
+    /* If name has trailing '/', respond with directory contents */
+    if (filename[strlen(filename) - 1] == '/') {
+        return http_resp_dir_html(req, filepath);
+    }
+
+    if (!SD_MMC.exists(filename)) {
+        /* If file not present on SPIFFS check if URI
+         * corresponds to one of the hardcoded paths */
+        if (strcmp(filename, "/index.html") == 0) {
+            return index_html_get_handler(req);
+        } 
+        else if (strcmp(filename, "/favicon.ico") == 0) {
+            return favicon_get_handler(req);
         }
-      }
-      // dummy answer
-      res = httpd_resp_set_type(req,  "text/plain");
-      if (res != ESP_OK) {
-        ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-      }
-      res = httpd_resp_send(req, "", 0);
-      // Raus.
-      return res; //<<==========================
-    }
-    else if (jobname == "edit")
-    {
-      String fn = getFileNameFromParam(params, flagCanEdit);
-      /** /
-      Serial.print("Edit: ");
-      Serial.print(fn);
-      Serial.println();
-      /**/
-      if (fn == "")
-      {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-        return res;
-      }
-      fileManagerFileEditorInsert(req, params, fn);
-      return res; //<<==========================
-    }
-    else if (jobname == "dwnldll") // downloadall
-    {
-      String fn = getFileNameFromParam(params, flagAllowInZip | flagCanDownload);
-      /** /
-      Serial.print("Download: ");
-      Serial.print(fn);
-      Serial.println();
-      /**/
-      if (fn == "")
-      {
-          httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-         return res;
-      }
-      return res; //<<==========================
-    }
-    else if ((jobname == "download") || (jobname == "preview"))
-    {
-      String fn = getFileNameFromParam(params, flagCanDownload);
-      /** /
-      Serial.print(F("Download: "));
-      Serial.print(fn);
-      Serial.println();
-      /**/
-      if (fn == "")
-      {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-        return res;
-      }
-      if (jobname == "download")
-      {
-        fileManagerDownload(req, params, fn);
-      }
-      else
-      {
-        servefile(req, params, fn);
-      }
-      return res; //<<==========================
-    }
-    else if (jobname == "createnew")
-    {
-      String fn = getFileNameFromParam(params, flagCanCreateNew);
-      // benötigt einen Filenamen-Fragment als Parameter, <nummer>.txt wird hier angefügt
-      /** /
-      Serial.print(F("CreateNew: "));
-      Serial.print(fn);
-      Serial.println();
-      /**/
-      if (!fn.startsWith("/"))
-      {
-        fn = "/" + fn;
-      }
-      if (fn == "")
-      {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-        return res;
-      }
-      int fsi = getFileSystemIndex(params);
-
-      int index = 0;
-      while (fsinfo[fsi].filesystem->exists(fn + String(index) + ".txt"))
-      {
-        index++;
-      }
-      File file = fsinfo[fsi].filesystem->open(fn + String(index) + ".txt", FILE_WRITE);
-      file.close();
-
-      res = httpd_resp_set_type(req,  "text/plain");
-      if (res != ESP_OK) {
-        ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-      }
-      res = httpd_resp_send(req, "", 0);
-      return res; //<<==========================
-    }
-  }
-
-  // in case all fail, ends here
-  httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
-
-  esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock();
-
-  return res;
-
-}
-
-bool ESP32SDFM::ShowInTreeView(queryParams params)
-{
-  if (params.num >= 1)
-  {
-    String tvs = params.t;
-    return tvs == "true";
-  }
-  else
-  {
-    return false;
-  }
-}
-
-String ESP32SDFM::CurrentPath(queryParams params)
-{
-  if (params.num >= 1)
-  {
-    return params.pn;
-  }
-  else
-  {
-    return "";
-  }
-}
-
-int ESP32SDFM::getFileSystemIndex(queryParams params, bool uselastFileSystemIndex)
-{
-  if (params.num >= 1)
-  {
-    String fsis = params.fs;
-    int fsi = fsis.toInt();
-    if ((fsi >= 0) && (fsi <= sizeof(fsinfo) / sizeof(fsinfo[0])))
-    {
-      /*
-        Serial.print("FS: ");
-        Serial.print(fsinfo[fsi].fsname);
-        Serial.println();
-      */
-      lastFileSystemIndex = fsi;
-      return fsi;
-    }
-  }
-
-  if ((uselastFileSystemIndex) && (lastFileSystemIndex != -1))
-  {
-    return lastFileSystemIndex;
-  }
-
-  return 0;
-}
-
-esp_err_t ESP32SDFM::extractQueryParams(struct httpd_req *req, queryParams params){
-    esp_err_t res = ESP_OK;
-
-    char*  buf;
-    size_t buf_len;
-
-    /* Read URL query string length and allocate memory for length + 1,
-     * extra byte for null termination */
-    buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1) {
-        buf = (char*)malloc(buf_len);
-        if (buf == nullptr) {
-          ESP_LOGE(TAG, "ERR: Failed to allocate snapshot buffer!\n");
-          return ESP_FAIL;
-        }
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            ESP_LOGI(TAG, "Found URL query => %s", buf);
-            char param[EXAMPLE_HTTP_QUERY_KEY_MAX_LEN]= {0};
-            char dec_param[EXAMPLE_HTTP_QUERY_KEY_MAX_LEN] = {0};
-            /* Get value of expected key from query string */
-            if (httpd_query_key_value(buf, "fs", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => fs=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.fs, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "fn", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => fn=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.fn, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "job", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => job=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.job, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "new", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => new=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.new_, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "mode", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => mode=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.mode, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "folder", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => folder=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.folder, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "t", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => t=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.t, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-            if (httpd_query_key_value(buf, "pn", param, sizeof(param)) == ESP_OK) {
-                ESP_LOGI(TAG, "Found URL query parameter => pn=%s", param);
-                example_uri_decode(dec_param, param, strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-                strncpy(params.pn, dec_param, sizeof(dec_param));
-                params.num = params.num + 1;
-                ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-            }
-        }
-        free(buf);
+        ESP_LOGE(TAG, "Failed to stat file : %s", filepath);
+        /* Respond with 404 Not Found */
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File does not exist");
+        return ESP_FAIL;
     }
 
-    // @TODO save parameters as object and return it for other sections to use.
-    return res;
-}
-
-void ESP32SDFM::recurseFolder(struct httpd_req *req, queryParams params, String foldername, bool flatview, int maxtiefe, bool iststart, int &linecounter)
-{
-  int fsi = getFileSystemIndex(params, false);
-  /** /
-  Serial.print("fsi: ");
-  Serial.print(fsi);
-  Serial.println();
-  /**/
-
-  if ((!flatview) && (iststart))
-  {
-    if (foldername != "/")
-    {
-      String cache = "-1:..:" + Folder1LevelUp(foldername);
-      cache += itemtrenner;
-      cache += "-2:" + foldername;
-      cache += itemtrenner;
-      httpd_resp_send_chunk(req, cache.c_str(), cache.length());
-
-      /** /
-      fileManager->sendContent("-1:..:" + Folder1LevelUp(foldername));
-      fileManager->sendContent(itemtrenner); // 0
-      fileManager->sendContent("-2:" + foldername);
-      fileManager->sendContent(itemtrenner); // 1
-      /**/
-    }
-    recurseFolderList(req, params, foldername, -1, 0);
-  }
-
-  // Trenner. Beim Start senden
-  if (iststart)
-  {
-    httpd_resp_send_chunk(req, beginoffiles.c_str(), beginoffiles.length());
-  }
-
-  //  Schritt 2: die Dateien in dem Ordner oder alles
-  File root = fsinfo[fsi].filesystem->open(foldername);
-  File file = root.openNextFile();
-  while (file)
-  {
-    if (file.isDirectory())
-    {
-      if (flatview)
-      {
-        recurseFolder(req, params, file.path(), flatview, maxtiefe, false, linecounter);
-      }
-    }
-    else
-    {
-      // Serial.println(file.name());
-
-      /* this is a bad solution, because what if the string changes?
-         I couldn't find the source of this string in expressif/esp32/arduino sources.
-      */
-
-      if (!((fsinfo[fsi].filesystem == &SD) &&
-            (String(file.path()).startsWith(svi))))
-      {
-        uint32_t flags = ~0;
-        if (!gzipperexists)
-        {
-          flags &= (~ESP32SDFM::flagCanGZip);
-        }
-
-        if (!(flags & ESP32SDFM::flagIsNotVisible))
-        {
-          String cache = String(file.path());
-          cache += itemtrenner;
-          cache += DeUmlautFilename(String(file.path()));
-          cache += itemtrenner;
-          cache += dispFileString(file.size(), false);
-          cache += itemtrenner;
-          cache += colorline(linecounter);
-          cache += itemtrenner;
-          cache += String(flags);
-          cache += itemtrenner;
-          httpd_resp_send_chunk(req, cache.c_str(), cache.length());
-
-          /** /
-          fileManager->sendContent(String(file.path()));                   // .path() ist fqfn, .name() nur fn?
-          fileManager->sendContent(itemtrenner);                           // 0
-          fileManager->sendContent(DeUmlautFilename(String(file.path()))); // Display Name
-          fileManager->sendContent(itemtrenner);                           // 1
-          fileManager->sendContent(dispFileString(file.size(), false));
-          fileManager->sendContent(itemtrenner); // 2
-          fileManager->sendContent(colorline(linecounter));
-          fileManager->sendContent(itemtrenner); // 3
-          fileManager->sendContent(String(flags));
-          fileManager->sendContent(itemtrenner); // 4
-          /**/
-          linecounter++;
-        }
-      }
-    }
-    file = root.openNextFile();
-  }
-}
-
-String ESP32SDFM::Folder1LevelUp(String foldername)
-{
-  /** /
-Serial.println(foldername);
-  /**/
-  int i = foldername.length();
-  while ((i > 0) && (foldername.charAt(i) != '/'))
-  {
-    i--;
-  }
-  if (i > 0)
-  {
-    /** /
-    Serial.println(foldername.substring(0, i));
-    /**/
-    return foldername.substring(0, i);
-  }
-  else
-  {
-    return "/";
-  }
-}
-
-String ESP32SDFM::dispFileString(uint64_t fs, bool printorg)
-{
-  if (fs < 0)
-  {
-    return "-0";
-  }
-
-  if (fs == 0)
-  {
-    return "0 B";
-  }
-
-  if (fs < 1000)
-  {
-    return String(fs) + " B";
-  }
-
-  String units[] = {"B", "kB", "MB", "GB", "TB"}; // Yes, small k, large everything else..., SI-Präfix
-  int digitGroups = (int)(log10(fs) / log10(1024));
-  if (printorg)
-  {
-    return String(fs / pow(1024, digitGroups)) + " " + units[digitGroups] + " <small>(" + dispIntDotted(fs) + " B)</small>";
-  }
-  else
-  {
-    return String(fs / pow(1024, digitGroups)) + " " + units[digitGroups];
-  }
-}
-
-void ESP32SDFM::recurseFolderList(struct httpd_req *req, queryParams params, String foldername, int maxtiefe, int tiefe)
-{
-  int fsi = getFileSystemIndex(params, false);
-
-  // Schritt 1: die Ordner
-  File root = fsinfo[fsi].filesystem->open(foldername);
-  File file = root.openNextFile();
-  while (file)
-  {
-    if (file.isDirectory())
-    {
-      if (!(String(file.path()).startsWith(svi)))
-      {
-        /** /
-        Serial.print("Pfad: ");
-        Serial.println(String(file.path()));
-        Serial.print("Name: ");
-        Serial.println(String(file.name()));
-        /**/
-        uint32_t flags = ~0;
-        if (!(flags & ESP32SDFM::flagIsNotVisible))
-        {
-          String cache = String(tiefe) + ":" + DeUmlautFilename(String(file.path()));
-          httpd_resp_send_chunk(req, cache.c_str(), cache.length());
-          httpd_resp_send_chunk(req, itemtrenner.c_str(), itemtrenner.length());
-        }
-      }
-      if (tiefe < maxtiefe)
-      {
-        recurseFolderList(req, params, file.path(), maxtiefe, tiefe + 1);
-      }
-    }
-    file = root.openNextFile();
-  }
-}
-
-// total/used are not exposed in FS::FS. Who knows why.
-uint64_t ESP32SDFM::totalBytes(fs::FS *fs)
-{
-  if (fs == &SD_MMC)
-  {
-    return SD_MMC.totalBytes();
-  }
-  else if (fs == &SD)
-  {
-    return SD.totalBytes();
-  }
-  else if (fs == &LittleFS)
-  {
-    return LittleFS.totalBytes();
-  }
-  else if (fs == &FFat)
-  {
-    return FFat.totalBytes();
-  }
-  else
-  {
-    return -1;
-  }
-}
-
-uint64_t ESP32SDFM::usedBytes(fs::FS *fs)
-{
-  if (fs == &SD_MMC)
-  {
-    return SD_MMC.usedBytes();
-  }
-  else if (fs == &SD)
-  {
-    return SD.usedBytes();
-  }
-  else if (fs == &LittleFS)
-  {
-    return LittleFS.usedBytes();
-  }
-  else if (fs == &FFat)
-  {
-    return FFat.usedBytes();
-  }
-  else
-  {
-    return -1;
-  }
-}
-
-String ESP32SDFM::CheckFileNameLengthLimit(String fn)
-{
-  // SPIFFS file name limit. Is there a way to get the max length from SPIFFS/LittleFS?
-  //                                      SPIFFS_OBJ_NAME_LEN is spifLittleFS.... but not very clean.
-  if (fn.length() > 32)
-  {
-    int len = fn.length();
-    fn.remove(29);
-    fn += String(len);
-  }
-
-  return fn;
-}
-
-String ESP32SDFM::getFileNameFromParam(queryParams params, uint32_t flag)
-{
-  /* the url looks like
-       job?fs=xx&fn=filename&job=jobtoken
-     plus extra params for some jobs.
-  */
-  /** /
-  Serial.println("Params");
-  for (int i = 0; i < fileManager->args(); i++)
-  {
-    Serial.print(fileManager->argName(i));
-    Serial.print("=");
-    Serial.print(fileManager->arg(i));
-    Serial.println();
-  }
-  /**/
-
-  if (params.num < 3)
-  {
-    /** /
-    Serial.println("Args < 3");
-    /**/
-    return "";
-  }
-
-  String fn = params.fn;
-
-  if (fn == "")
-  {
-    /** /
-    Serial.println("arg(fn) is empty");
-    /**/
-    return "";
-  }
-
-  int fsi = getFileSystemIndex(params);
-
-  // Sonderregel, wenn eine neue Datei erstellt werden soll
-  if ((flag & flagCanCreateNew) || (flag & flagAllowInZip))
-  {
-    return fn;
-  }
-  else
-  {
-    if (fsinfo[fsi].filesystem->exists(fn))
-    { // file exists!
-      // Yeah.
-      return fn;
-    }
-  }
-
-  /** /
-Serial.println("Return nothing");
-  /**/
-  return "";
-}
-
-bool ESP32SDFM::CopyMoveFile(queryParams params, String oldfilename, String newfilename, bool move)
-{
-  // Zusammensuchen der FilesystemIndizes
-  int fsiofn = getFSidxfromFilename(oldfilename);
-  int fsinfn = getFSidxfromFilename(newfilename);
-
-  if (fsiofn == -1)
-  {
-    fsiofn = getFileSystemIndex(params);
-  }
-  if (fsinfn == -1)
-  {
-    fsinfn = fsiofn;
-  }
-
-  // Aufräumen der Dateinamen
-  oldfilename = getCleanFilename(oldfilename);
-  newfilename = getCleanFilename(newfilename);
-
-  // Neuen Ordner bauen, vorsichtshalber. Stückweise.
-  int i = 1;
-  String pn = pathname(newfilename);
-  while (i < pn.length())
-  {
-    if (pn.charAt(i) == '/')
-    {
-      fsinfo[fsinfn].filesystem->mkdir(pn.substring(0, i));
-    }
-    i++;
-  }
-  fsinfo[fsinfn].filesystem->mkdir(pn);
-
-  File oldfile = fsinfo[fsiofn].filesystem->open(oldfilename, FILE_READ);
-  File newfile = fsinfo[fsinfn].filesystem->open(newfilename, FILE_WRITE);
-
-  if ((oldfile) && (newfile))
-  {
-    const int bufsize = 4 * 1024;
-    uint8_t *buffer;
-    buffer = new uint8_t[4 * 1024];
-
-    int bytesread = 0;
-    int byteswritten = 0;
-    while (oldfile.available())
-    {
-      size_t r = oldfile.read(buffer, bufsize);
-      bytesread += r;
-      byteswritten += newfile.write(buffer, r);
+    File fd = SD_MMC.open(filepath);
+    if (!fd) {
+        ESP_LOGE(TAG, "Failed to read existing file : %s", filepath);
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
+        return ESP_FAIL;
     }
 
-    delete[] buffer;
-
-    oldfile.close();
-    newfile.close();
-
-    // remove only, if new file is fully written.
-    if ((move) && (bytesread == byteswritten))
-    {
-      fsinfo[fsiofn].filesystem->remove(oldfilename);
-    }
-
-    return true;
-  }
-  else
-  {
-    if (oldfile)
-    {
-      Serial.println(F("CMF: newfile fail."));
-    }
-    else
-    {
-      Serial.println(F("CMF: oldfile fail."));
-    }
-    return false;
-  }
-}
-
-String ESP32SDFM::DeUmlautFilename(String fn)
-{ // cp437/cp850 to ...
-  String nfn = "";
-  for (int i = 0; i < fn.length(); i++)
-  {
-    switch (fn[i])
-    {
-    case 0x84:
-      nfn += "\u00e4";
-      break;
-    case 0x94:
-      nfn += "\u00f6";
-      break;
-    case 0x81:
-      nfn += "\u00fc";
-      break;
-    case 0x8E:
-      nfn += "\u00c4";
-      break;
-    case 0x99:
-      nfn += "\u00d6";
-      break;
-    case 0x9A:
-      nfn += "\u00dc";
-      break;
-    case 0xE1:
-      nfn += "\u00df";
-      break;
-      // €	\u20ac
-
-    default:
-      nfn += fn[i];
-      break;
-    }
-  }
-
-  return nfn;
-}
-
-String ESP32SDFM::dispIntDotted(size_t i)
-{
-  String res = "";
-  while (i != 0)
-  {
-    int r = i % 1000;
-    res = String(i % 1000) + res;
-    i /= 1000;
-    if ((r < 100) && (i > 0))
-    {
-      res = "0" + res;
-      if (r < 10)
-      {
-        res = "0" + res;
-      }
-    }
-    if (i != 0)
-    {
-      res = "." + res;
-    }
-  }
-  return res;
-}
-
-String ESP32SDFM::colorline(int i)
-{
-  if (i % 2 == 0)
-  {
-    return "ccu";
-  }
-  else
-  {
-    return "ccg";
-  }
-}
-
-void ESP32SDFM::fileManagerFileEditorInsert(struct httpd_req *req, queryParams params,  String &filename)
-{
-  esp_err_t res = ESP_OK;
-
-  // Serial.println("Edit");
-  res = httpd_resp_set_type(req,  "text/html");
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-  }
-  httpd_resp_send_chunk(req, ESPFMfGKWpFormIntro1, strlen(ESPFMfGKWpFormIntro1));
-  httpd_resp_send_chunk(req, textareaCharset.c_str(), textareaCharset.length());
-  httpd_resp_send_chunk(req, ESPFMfGKWpFormIntro2, strlen(ESPFMfGKWpFormIntro2));
-
-  httpd_resp_set_type(req, "text/text");
-  if (fsinfo[getFileSystemIndex(params)].filesystem->exists(filename))
-  {
-    File f = fsinfo[getFileSystemIndex(params)].filesystem->open(filename, "r");
-    if (f)
-    {
-      const int chuncksize = 2 * 1024;
-      String cache = "";
-      do
-      {
-        cache += f.readStringUntil('\n') + '\n';
-        if (cache.length() >= chuncksize)
-        {
-          cache = escapeHTMLcontent(cache);
-          httpd_resp_send_chunk(req, cache.c_str(), cache.length());
-          cache = "";
-        }
-      } while (f.available());
-      f.close();
-      if (cache != "")
-      {
-        httpd_resp_send_chunk(req, cache.c_str(), cache.length());
-      }
-    }
-  }
-  else
-  {
-    /** /
-    Serial.println(filename);
-    Serial.println(F("File not found"));
-    /**/
-  }
-
-  httpd_resp_send_chunk(req, ESPFMfGKWpFormExtro1, strlen(ESPFMfGKWpFormExtro1));
-  httpd_resp_send_chunk(req, "", 0);
-}
-
-void ESP32SDFM::fileManagerDownload(struct httpd_req *req, queryParams params, String &filename)
-{
-  esp_err_t res = ESP_OK;
-
-  // filesystem set by caller
-  File f = fsinfo[getFileSystemIndex(params)].filesystem->open(filename, "r");
-  if (f)
-  {
-    // ohne führend slash
-    if (filename.startsWith("/"))
-    {
-      filename.remove(0, 1);
-    }
-
-
-    ESP_LOGI(TAG, "Sending file : %s ...", filename);
-    httpd_resp_set_type(req, getContentType(filename).c_str());
+    ESP_LOGI(TAG, "Sending file : %s (%ld bytes)...", filename, fd.size());
+    set_content_type_from_file(req, filename);
 
     /* Retrieve the pointer to scratch buffer for temporary storage */
-    char *chunk = ((struct file_server_data *)req->user_ctx)->scratch;
+    uint8_t *chunk = ((struct file_server_data *)req->user_ctx)->scratch;
     size_t chunksize;
     do {
         /* Read file in chunks into the scratch buffer */
-        chunksize = f.readBytes(chunk, SCRATCH_BUFSIZE);
+        chunksize = fd.read(chunk, SCRATCH_BUFSIZE);
 
         if (chunksize > 0) {
             /* Send the buffer contents as HTTP response chunk */
-            if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
-                f.close();
+            if (httpd_resp_send_chunk(req, (char*)chunk, chunksize) != ESP_OK) {
+                fd.close();
                 ESP_LOGE(TAG, "File sending failed!");
                 /* Abort sending file */
                 httpd_resp_sendstr_chunk(req, NULL);
                 /* Respond with 500 Internal Server Error */
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
-               return;
+               return ESP_FAIL;
            }
         }
 
         /* Keep looping till the whole file is sent */
     } while (chunksize != 0);
 
-    f.close();
+    /* Close file after sending complete */
+    fd.close();
     ESP_LOGI(TAG, "File sending complete");
+
+    /* Respond with an empty chunk to signal HTTP response completion */
+#ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
+    httpd_resp_set_hdr(req, "Connection", "close");
+#endif
     httpd_resp_send_chunk(req, NULL, 0);
-    return;
-  }
+    return ESP_OK;
 }
 
-void ESP32SDFM::servefile(struct httpd_req *req, queryParams params, String uri)
+/* Handler to upload a file onto the server */
+esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
 {
-  // Handle the servinf of the "fm.*"-files
-  int fsi = getFileSystemIndex(params, false);
-  if (fsi == -1)
-  {
-    fsi = 0;
-  }
-  /** /
-  Serial.print(F("File system id: "));
-  Serial.println(fsi);
-  /**/
+    char filepath[FILE_PATH_MAX];
 
-  if (fsinfo[fsi].filesystem->exists(uri))
-  {
-    File f = fsinfo[fsi].filesystem->open(uri, "r");
-    if (f)
-    {
-    ESP_LOGI(TAG, "Sending file : %s ...", uri);
-    httpd_resp_set_type(req, getContentType(uri).c_str());
+    /* Skip leading "/upload" from URI to get filename */
+    /* Note sizeof() counts NULL termination hence the -1 */
+    const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
+                                             req->uri + sizeof("/upload") - 1, sizeof(filepath));
+    if (!filename) {
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
+        return ESP_FAIL;
+    }
+
+    /* Filename cannot have a trailing '/' */
+    if (filename[strlen(filename) - 1] == '/') {
+        ESP_LOGE(TAG, "Invalid filename : %s", filename);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
+        return ESP_FAIL;
+    }
+
+    if (SD_MMC.exists(filepath)) {
+        ESP_LOGE(TAG, "File already exists : %s", filepath);
+        /* Respond with 400 Bad Request */
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File already exists");
+        return ESP_FAIL;
+    }
+
+    /* File cannot be larger than a limit */
+    if (req->content_len > MAX_FILE_SIZE) {
+        ESP_LOGE(TAG, "File too large : %d bytes", req->content_len);
+        /* Respond with 400 Bad Request */
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "File size must be less than "
+                            MAX_FILE_SIZE_STR "!");
+        /* Return failure to close underlying connection else the
+         * incoming file content will keep the socket busy */
+        return ESP_FAIL;
+    }
+
+    File file = SD_MMC.open(filepath, FILE_WRITE);
+    if (!file) {
+        ESP_LOGE(TAG, "Failed to create file : %s", filepath);
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Receiving file : %s...", filename);
 
     /* Retrieve the pointer to scratch buffer for temporary storage */
-    char *chunk = ((struct file_server_data *)req->user_ctx)->scratch;
-    size_t chunksize;
-    do {
-        /* Read file in chunks into the scratch buffer */
-        chunksize = f.readBytes(chunk, SCRATCH_BUFSIZE);
+    uint8_t *chunk = ((struct file_server_data *)req->user_ctx)->scratch;
+    int received;
 
-        if (chunksize > 0) {
-            /* Send the buffer contents as HTTP response chunk */
-            if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
-                f.close();
-                ESP_LOGE(TAG, "File sending failed!");
-                /* Abort sending file */
-                httpd_resp_sendstr_chunk(req, NULL);
-                /* Respond with 500 Internal Server Error */
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
-               return;
-           }
+    /* Content length of the request gives
+     * the size of the file being uploaded */
+    int remaining = req->content_len;
+
+    while (remaining > 0) {
+
+        ESP_LOGI(TAG, "Remaining size : %d", remaining);
+        /* Receive the file part by part into a buffer */
+        if ((received = httpd_req_recv(req, (char*)chunk, MIN(remaining, SCRATCH_BUFSIZE))) <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                /* Retry if timeout occurred */
+                continue;
+            }
+
+            /* In case of unrecoverable error,
+             * close and delete the unfinished file*/
+            file.close();
+            SD_MMC.remove(filepath);
+
+            ESP_LOGE(TAG, "File reception failed!");
+            /* Respond with 500 Internal Server Error */
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
+            return ESP_FAIL;
         }
 
-        /* Keep looping till the whole file is sent */
-    } while (chunksize != 0);
+        /* Write buffer content to file on storage */
+        
+        if (received && (received != file.write(chunk, received))) {
+            /* Couldn't write everything to file!
+             * Storage may be full? */
+            file.close();
+            SD_MMC.remove(filepath);
 
-    f.close();
-    ESP_LOGI(TAG, "File sending complete");
-    httpd_resp_send_chunk(req, NULL, 0);
+            ESP_LOGE(TAG, "File write failed!");
+            /* Respond with 500 Internal Server Error */
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write file to storage");
+            return ESP_FAIL;
+        }
+
+        /* Keep track of remaining size of
+         * the file left to be uploaded */
+        remaining -= received;
     }
-  }
 
-  httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "URI is not available");
+    /* Close file upon upload completion */
+    file.close();
+    ESP_LOGI(TAG, "File reception complete");
+
+    /* Redirect onto root to see the updated file list */
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+#ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
+    httpd_resp_set_hdr(req, "Connection", "close");
+#endif
+    httpd_resp_sendstr(req, "File uploaded successfully");
+    return ESP_OK;
 }
 
-int ESP32SDFM::getFSidxfromFilename(String fn)
+/* Handler to delete a file from the server */
+esp_err_t ESP32SDFM::delete_post_handler(httpd_req *req)
 {
-  int i = fn.indexOf(":");
-  if (i > -1)
-  {
-    fn = fn.substring(0, i - 1);
-    int fnidx = fn.toInt();
-    // Limits
-    if ((fnidx < 0) || (fnidx >= maxfilesystem))
-    {
-      return -1;
+    char filepath[FILE_PATH_MAX];
+   
+    /* Skip leading "/delete" from URI to get filename */
+    /* Note sizeof() counts NULL termination hence the -1 */
+    const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
+                                             req->uri  + sizeof("/delete") - 1, sizeof(filepath));
+    if (!filename) {
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
+        return ESP_FAIL;
     }
-    else
-    {
-      return fnidx;
+
+    /* Filename cannot have a trailing '/' */
+    if (filename[strlen(filename) - 1] == '/') {
+        ESP_LOGE(TAG, "Invalid filename : %s", filename);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
+        return ESP_FAIL;
     }
-  }
-  else
-  {
-    return -1;
-  }
+
+    if (!SD_MMC.exists(filename)) {
+        ESP_LOGE(TAG, "File does not exist : %s", filename);
+        /* Respond with 400 Bad Request */
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File does not exist");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Deleting file : %s", filename);
+    /* Delete file */
+    SD_MMC.remove(filename);
+
+    /* Redirect onto root to see the updated file list */
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+#ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
+    httpd_resp_set_hdr(req, "Connection", "close");
+#endif
+    httpd_resp_sendstr(req, "File deleted successfully");
+    return ESP_OK;
 }
 
-String ESP32SDFM::getCleanFilename(String fn)
+/* Function to start the file server */
+esp_err_t ESP32SDFM::start_file_server(const char *base_path)
 {
-  int i = fn.indexOf(":");
-  if (i > -1)
-  {
-    return fn.substring(i + 1, fn.length() - 2);
-  }
-  else
-  {
-    return fn;
-  }
-}
+    static struct file_server_data *server_data = NULL;
 
-String ESP32SDFM::pathname(String fn)
-{
-  // find last "/"
-  int i = fn.lastIndexOf("/");
+    if (server_data) {
+        ESP_LOGE(TAG, "File server already started");
+        return ESP_ERR_INVALID_STATE;
+    }
 
-  if (i > -1)
-  {
-    // Serial.println(fn.substring(0, i));
-    return fn.substring(0, i);
-  }
-  else
-  {
-    return "/";
-  }
-}
+    /* Allocate memory for server data */
+    server_data = (struct file_server_data *)calloc(1, sizeof(struct file_server_data));
+    if (!server_data) {
+        ESP_LOGE(TAG, "Failed to allocate memory for server data");
+        return ESP_ERR_NO_MEM;
+    }
+    strlcpy(server_data->base_path, base_path,
+            sizeof(server_data->base_path));
 
-String ESP32SDFM::escapeHTMLcontent(String html)
-{
-  // html.replace("<","&lt;");
-  // html.replace(">","&gt;");
-  html.replace("&", "&amp;");
+    httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
-  return html;
-}
+    /* Use the URI wildcard matching function in order to
+     * allow the same handler to respond to multiple different
+     * target URIs which match the wildcard scheme */
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    config.server_port = port_,
 
-String ESP32SDFM::getContentType(const String &path)
-{
-  String dataType = "text/plain";
-  if (path.endsWith(".htm")) {
-    dataType = "text/html";
-  } else if (path.endsWith(".css")) {
-    dataType = "text/css";
-  } else if (path.endsWith(".js")) {
-    dataType = "application/javascript";
-  } else if (path.endsWith(".png")) {
-    dataType = "image/png";
-  } else if (path.endsWith(".gif")) {
-    dataType = "image/gif";
-  } else if (path.endsWith(".jpg")) {
-    dataType = "image/jpeg";
-  } else if (path.endsWith(".ico")) {
-    dataType = "image/x-icon";
-  } else if (path.endsWith(".xml")) {
-    dataType = "text/xml";
-  } else if (path.endsWith(".pdf")) {
-    dataType = "application/pdf";
-  } else if (path.endsWith(".zip")) {
-    dataType = "application/zip";
-  }
-  return dataType;
+    ESP_LOGI(TAG, "Starting HTTP Server on port: '%d'", port_);
+    if (httpd_start(&server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start file server!");
+        return ESP_FAIL;
+    }
+
+    /* URI handler for getting uploaded files */
+    httpd_uri_t file_download = {
+        .uri       = "/*",  // Match all URIs of type /path/to/file
+        .method    = HTTP_GET,
+        .handler   = download_get_handler,
+        .user_ctx  = server_data    // Pass server data as context
+    };
+    httpd_register_uri_handler(server, &file_download);
+
+    /* URI handler for uploading files to server */
+    httpd_uri_t file_upload = {
+        .uri       = "/upload/*",   // Match all URIs of type /upload/path/to/file
+        .method    = HTTP_POST,
+        .handler   = upload_post_handler,
+        .user_ctx  = server_data    // Pass server data as context
+    };
+    httpd_register_uri_handler(server, &file_upload);
+
+    /* URI handler for deleting files from server */
+    httpd_uri_t file_delete = {
+        .uri       = "/delete/*",   // Match all URIs of type /delete/path/to/file
+        .method    = HTTP_POST,
+        .handler   = delete_post_handler,
+        .user_ctx  = server_data    // Pass server data as context
+    };
+    httpd_register_uri_handler(server, &file_delete);
+
+    return ESP_OK;
 }
 
 } //namespace esp32_sd_filemanager
