@@ -42,7 +42,7 @@ CONFIG_SCHEMA = (
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(cv.polling_component_schema("60s"))
+    .extend(cv.polling_component_schema("300s"))
 )
 
 
