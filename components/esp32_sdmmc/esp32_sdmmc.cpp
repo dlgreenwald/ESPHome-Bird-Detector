@@ -29,38 +29,47 @@ void ESP32SDMMC::setup() {
     ESP_LOGI(TAG, "SD Card Successfully Initialized");
 }
 
-void ESP32SDMMC::listDir(const char * dirname, uint8_t levels){
-    ESP_LOGI(TAG, "Listing directory: %s\n", dirname);
+float ESP32SDMMC::get_setup_priority() const { return setup_priority::DATA; }
 
+
+void ESP32SDMMC::update() {
+    get_sd_lock(TAG);
+    uint16_t data_eco2;
+    this->numFiles_->publish_state(countFiles("/", 3));
+    this->diskUsed_->publish_state(SD_MMC.usedBytes());
+    this->DiskRemaining_->publish_state(SD_MMC.totalBytes()-SD_MMC.usedBytes());
+    return_sd_lock(TAG);
+}
+
+
+uint16_t ESP32SDMMC::countFiles(const char * dirname, uint8_t levels){
+    ESP_LOGV(TAG, "Listing directory: %s", dirname);
+
+    uint16_t count = 0;
     File root = SD_MMC.open(dirname);
     if(!root){
-        ESP_LOGI(TAG, "Failed to open directory");
-        return;
+        ESP_LOGV(TAG, "Failed to open directory");
+        return 0;
     }
     if(!root.isDirectory()){
-        ESP_LOGI(TAG, "Not a directory");
-        return;
+        ESP_LOGV(TAG, "Not a directory");
+        return 0;
     }
 
     File file = root.openNextFile();
     while(file){
         if(file.isDirectory()){
-            ESP_LOGI(TAG, "  DIR : %s", file.name());
             if(levels){
-                listDir(file.name(), levels -1);
+                count = count + countFiles(file.name(), levels -1);
             }
         } else {
-            ESP_LOGI(TAG, "  FILE: %s", file.name());
-            ESP_LOGI(TAG, "  SIZE: %i", file.size());
+            count = count+1;
         }
+        ESP_LOGV(TAG, "Current Count @ %s is %i", dirname, count);
         file = root.openNextFile();
     }
-}
-
-float ESP32SDMMC::get_setup_priority() const { return setup_priority::DATA; }
-
-
-void ESP32SDMMC::update() {
+    ESP_LOGV(TAG, "Count @ %s is %i", dirname, count);
+    return count;
 }
 
 void ESP32SDMMC::dump_config() {
@@ -84,13 +93,14 @@ void ESP32SDMMC::dump_config() {
     ESP_LOGCONFIG(TAG, "Used space: %lluMB", SD_MMC.usedBytes() / (1024 * 1024));  
 }
 
-void  ESP32SDMMC::get_sd_lock(){
-    ESP_LOGI(TAG, "SD Card Lock Aquired");
+void  ESP32SDMMC::get_sd_lock(const char* clientTag){
+    ESP_LOGI(TAG, "SD Card Lock Aquired: %s", clientTag);
     this->sd_lock_.lock();
 }
 
-void ESP32SDMMC::return_sd_lock(){
-    ESP_LOGI(TAG, "SD Card Lock Returned");
+//not sure these pointers are right....should they be *& ?!?!
+void ESP32SDMMC::return_sd_lock(const char* clientTag){
+    ESP_LOGI(TAG, "SD Card Lock Returned: %s", clientTag);
     this->sd_lock_.unlock();
 }
 
