@@ -20,10 +20,5 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add_library("FS","2.0.0");
     cg.add_library("SD_MMC", "2.0.0")
-    cg.add_library("WiFi", "2.0.0")
-#    cg.add_library(
-#        "ESPFMfGK",
-#        None,
-#        "https://github.com/Sensirion/arduino-gas-index-algorithm.git#3.2.1",
-#    )
+#    cg.add_library("WiFi", "2.0.0")
     

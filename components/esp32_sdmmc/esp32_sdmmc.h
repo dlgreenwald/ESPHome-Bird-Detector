@@ -18,6 +18,7 @@ class ESP32SDMMC : public PollingComponent {
   void get_sd_lock();
   void return_sd_lock();
  protected:
+  void listDir(const char * dirname, uint8_t levels);
   Mutex sd_lock_;
 };
 
