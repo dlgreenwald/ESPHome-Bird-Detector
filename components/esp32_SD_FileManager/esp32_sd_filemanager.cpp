@@ -84,6 +84,9 @@ esp_err_t ESP32SDFM::http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     char entrysize[16];
     const char *entrytype;
 
+    esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock(TAG);
+
+    ESP_LOGI(TAG, "Listing Directory: %s", dirpath);
     File dir = SD_MMC.open(dirpath);
     const size_t dirpath_len = strlen(dirpath);
 
@@ -123,7 +126,7 @@ esp_err_t ESP32SDFM::http_resp_dir_html(httpd_req_t *req, const char *dirpath)
         //     continue;
         // }
         sprintf(entrysize, "%ld", file.size());
-        ESP_LOGI(TAG, "Found %s : %s (%s bytes)", entrytype, file.name(), entrysize);
+        ESP_LOGV(TAG, "Found %s : %s (%s bytes)", entrytype, file.name(), entrysize);
 
         /* Send chunk of HTML file containing table entries with file name and size */
         httpd_resp_sendstr_chunk(req, "<tr><td><a href=\"");
@@ -148,6 +151,8 @@ esp_err_t ESP32SDFM::http_resp_dir_html(httpd_req_t *req, const char *dirpath)
         file = dir.openNextFile();
     }
     dir.close();
+
+    esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
 
     /* Finish the file list table */
     httpd_resp_sendstr_chunk(req, "</tbody></table>");
@@ -243,6 +248,9 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
         return http_resp_dir_html(req, filepath);
     }
 
+
+    esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock(TAG);
+
     if (!SD_MMC.exists(filename)) {
         /* If file not present on SPIFFS check if URI
          * corresponds to one of the hardcoded paths */
@@ -296,6 +304,8 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
     fd.close();
     ESP_LOGI(TAG, "File sending complete");
 
+    esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
+
     /* Respond with an empty chunk to signal HTTP response completion */
 #ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
     httpd_resp_set_hdr(req, "Connection", "close");
@@ -325,6 +335,8 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
         return ESP_FAIL;
     }
+
+    esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock(TAG);
 
     if (SD_MMC.exists(filepath)) {
         ESP_LOGE(TAG, "File already exists : %s", filepath);
@@ -407,6 +419,8 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
     file.close();
     ESP_LOGI(TAG, "File reception complete");
 
+    esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
+
     /* Redirect onto root to see the updated file list */
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
@@ -439,6 +453,8 @@ esp_err_t ESP32SDFM::delete_post_handler(httpd_req *req)
         return ESP_FAIL;
     }
 
+    esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock(TAG);
+
     if (!SD_MMC.exists(filename)) {
         ESP_LOGE(TAG, "File does not exist : %s", filename);
         /* Respond with 400 Bad Request */
@@ -449,6 +465,8 @@ esp_err_t ESP32SDFM::delete_post_handler(httpd_req *req)
     ESP_LOGI(TAG, "Deleting file : %s", filename);
     /* Delete file */
     SD_MMC.remove(filename);
+
+    esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
 
     /* Redirect onto root to see the updated file list */
     httpd_resp_set_status(req, "303 See Other");
