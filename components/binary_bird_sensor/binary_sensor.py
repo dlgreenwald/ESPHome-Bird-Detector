@@ -17,5 +17,6 @@ CONFIG_SCHEMA = binary_sensor.BINARY_SENSOR_SCHEMA.extend({
 def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     cg.add_library("FS","2.0.0")
+    cg.add_library(None, None, "https://github.com/dlgreenwald/ESPHome-Bird-Detector/raw/main/lib/ei-bird-classifier-arduino-1.0.5.zip")
     yield cg.register_component(var, config)
     yield binary_sensor.register_binary_sensor(var, config)
