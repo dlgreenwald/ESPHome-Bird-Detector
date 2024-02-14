@@ -73,35 +73,36 @@ uint16_t ESP32SDMMC::countFiles(const char * dirname, uint8_t levels){
 }
 
 void ESP32SDMMC::dump_config() {
-    ESP_LOGCONFIG(TAG, "SD MMC");
+    ESP_LOGCONFIG(TAG, "SD MMC:");
     uint8_t cardType = SD_MMC.cardType();
 
     if(cardType == CARD_NONE){
-        ESP_LOGCONFIG(TAG, "SD Card Type: No SD_MMC card attached");
+        ESP_LOGCONFIG(TAG, "   SD Card Type: No SD_MMC card attached");
         return;
     }
     if(cardType == CARD_MMC){
-        ESP_LOGCONFIG(TAG, "SD Card Type: MMC");
+        ESP_LOGCONFIG(TAG, "   SD Card Type: MMC");
     } else if(cardType == CARD_SD){
-        ESP_LOGCONFIG(TAG, "SD Card Type: SDSC");
+        ESP_LOGCONFIG(TAG, "   SD Card Type: SDSC");
     } else if(cardType == CARD_SDHC){
-        ESP_LOGCONFIG(TAG, "SD Card Type: SDHC");
+        ESP_LOGCONFIG(TAG, "   SD Card Type: SDHC");
     } else {
-        ESP_LOGCONFIG(TAG, "SD Card Type: UNKNOWN");
+        ESP_LOGCONFIG(TAG, "   SD Card Type: UNKNOWN");
     }
-    ESP_LOGCONFIG(TAG, "Total space: %lluMB", SD_MMC.totalBytes() / (1024 * 1024));
-    ESP_LOGCONFIG(TAG, "Used space: %lluMB", SD_MMC.usedBytes() / (1024 * 1024));  
+    ESP_LOGCONFIG(TAG, "   Total space: %lluMB", SD_MMC.totalBytes() / (1024 * 1024));
+    ESP_LOGCONFIG(TAG, "   Used space: %lluMB", SD_MMC.usedBytes() / (1024 * 1024));  
 }
 
 void  ESP32SDMMC::get_sd_lock(const char* clientTag){
-    ESP_LOGI(TAG, "SD Card Lock Aquired: %s", clientTag);
+    ESP_LOGI(TAG, "SD Card Lock Requested: %s", clientTag);
     this->sd_lock_.lock();
+    ESP_LOGI(TAG, "SD Card Lock Aquired: %s", clientTag);
 }
 
 //not sure these pointers are right....should they be *& ?!?!
 void ESP32SDMMC::return_sd_lock(const char* clientTag){
-    ESP_LOGI(TAG, "SD Card Lock Returned: %s", clientTag);
     this->sd_lock_.unlock();
+    ESP_LOGI(TAG, "SD Card Lock Returned: %s", clientTag);
 }
 
 } //namespace esp32_sdmmc
