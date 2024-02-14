@@ -36,7 +36,7 @@ void ESP32SDFM::setup() {
     return;
   }
 
-  start_file_server("/");
+  start_file_server("");
 }
 
 float ESP32SDFM::get_setup_priority() const { return setup_priority::LATE; }
@@ -97,6 +97,7 @@ esp_err_t ESP32SDFM::http_resp_dir_html(httpd_req_t *req, const char *dirpath)
         ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
         /* Respond with 404 Not Found */
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Directory does not exist");
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
@@ -245,6 +246,8 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
 
     /* If name has trailing '/', respond with directory contents */
     if (filename[strlen(filename) - 1] == '/') {
+        //drop the trailing '/' from the filepath as it's problematic for open
+        filepath[strlen(filepath)-1] = '\0';
         return http_resp_dir_html(req, filepath);
     }
 
@@ -255,14 +258,17 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
         /* If file not present on SPIFFS check if URI
          * corresponds to one of the hardcoded paths */
         if (strcmp(filename, "/index.html") == 0) {
+            esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
             return index_html_get_handler(req);
         } 
         else if (strcmp(filename, "/favicon.ico") == 0) {
+            esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
             return favicon_get_handler(req);
         }
         ESP_LOGE(TAG, "Failed to stat file : %s", filepath);
         /* Respond with 404 Not Found */
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File does not exist");
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
@@ -271,6 +277,7 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
         ESP_LOGE(TAG, "Failed to read existing file : %s", filepath);
         /* Respond with 500 Internal Server Error */
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
@@ -293,6 +300,7 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
                 httpd_resp_sendstr_chunk(req, NULL);
                 /* Respond with 500 Internal Server Error */
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
+                esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
                return ESP_FAIL;
            }
         }
