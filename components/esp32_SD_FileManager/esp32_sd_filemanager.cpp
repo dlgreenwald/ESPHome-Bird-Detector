@@ -246,8 +246,10 @@ esp_err_t ESP32SDFM::download_get_handler(httpd_req *req)
 
     /* If name has trailing '/', respond with directory contents */
     if (filename[strlen(filename) - 1] == '/') {
-        //drop the trailing '/' from the filepath as it's problematic for open
-        filepath[strlen(filepath)-1] = '\0';
+        //drop the trailing '/' from the filepath as it's problematic for open if it's more than the root.
+        if(strlen(filepath)>1){
+            filepath[strlen(filepath)-1] = '\0';
+        }
         return http_resp_dir_html(req, filepath);
     }
 
@@ -350,6 +352,7 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
         ESP_LOGE(TAG, "File already exists : %s", filepath);
         /* Respond with 400 Bad Request */
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File already exists");
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
@@ -362,6 +365,7 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
                             MAX_FILE_SIZE_STR "!");
         /* Return failure to close underlying connection else the
          * incoming file content will keep the socket busy */
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
@@ -370,6 +374,7 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
         ESP_LOGE(TAG, "Failed to create file : %s", filepath);
         /* Respond with 500 Internal Server Error */
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
@@ -401,6 +406,7 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
             ESP_LOGE(TAG, "File reception failed!");
             /* Respond with 500 Internal Server Error */
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
+            esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
             return ESP_FAIL;
         }
 
@@ -415,6 +421,7 @@ esp_err_t ESP32SDFM::upload_post_handler(httpd_req_t *req)
             ESP_LOGE(TAG, "File write failed!");
             /* Respond with 500 Internal Server Error */
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write file to storage");
+            esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
             return ESP_FAIL;
         }
 
@@ -467,6 +474,7 @@ esp_err_t ESP32SDFM::delete_post_handler(httpd_req *req)
         ESP_LOGE(TAG, "File does not exist : %s", filename);
         /* Respond with 400 Bad Request */
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File does not exist");
+        esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
         return ESP_FAIL;
     }
 
