@@ -60,7 +60,16 @@ uint16_t ESP32SDMMC::countFiles(const char * dirname, uint8_t levels){
     while(file){
         if(file.isDirectory()){
             if(levels){
-                count = count + countFiles(file.name(), levels -1);
+                const size_t len1 = strlen(dirname);
+                const size_t len2 = strlen(file.name());
+
+                char *result = (char *)malloc(len1 + len2 + 1); // +1 for the null-terminator
+
+                memcpy(result, dirname, len1);
+                memcpy(result + len1, file.name(), len2 + 1); // +1 to copy the null-terminator
+                //concatanate dirname+file.name();
+                count = count + countFiles(result, levels -1);
+                free(result);
             }
         } else {
             count = count+1;
