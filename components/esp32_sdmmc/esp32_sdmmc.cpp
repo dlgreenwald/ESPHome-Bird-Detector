@@ -35,7 +35,7 @@ float ESP32SDMMC::get_setup_priority() const { return setup_priority::DATA; }
 void ESP32SDMMC::update() {
     get_sd_lock(TAG);
     uint16_t data_eco2;
-    this->numFiles_->publish_state(countFiles("/", 3));
+    //this->numFiles_->publish_state(countFiles("/", 3));
     this->diskUsed_->publish_state(SD_MMC.usedBytes());
     this->DiskRemaining_->publish_state(SD_MMC.totalBytes()-SD_MMC.usedBytes());
     return_sd_lock(TAG);
@@ -103,15 +103,15 @@ void ESP32SDMMC::dump_config() {
 }
 
 void  ESP32SDMMC::get_sd_lock(const char* clientTag){
-    ESP_LOGI(TAG, "SD Card Lock Requested: %s", clientTag);
+    ESP_LOGV(TAG, "SD Card Lock Requested: %s", clientTag);
     this->sd_lock_.lock();
-    ESP_LOGI(TAG, "SD Card Lock Aquired: %s", clientTag);
+    ESP_LOGV(TAG, "SD Card Lock Aquired: %s", clientTag);
 }
 
 //not sure these pointers are right....should they be *& ?!?!
 void ESP32SDMMC::return_sd_lock(const char* clientTag){
     this->sd_lock_.unlock();
-    ESP_LOGI(TAG, "SD Card Lock Returned: %s", clientTag);
+    ESP_LOGV(TAG, "SD Card Lock Returned: %s", clientTag);
 }
 
 } //namespace esp32_sdmmc
