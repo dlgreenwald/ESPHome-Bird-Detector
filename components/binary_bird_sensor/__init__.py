@@ -7,7 +7,7 @@ binary_bird_sensor_ns = cg.esphome_ns.namespace('binary_bird_sensor')
 
 BinaryBirdSensor = binary_bird_sensor_ns.class_('BinaryBirdSensor', cg.PollingComponent)
 
-DEPENDENCIES = ["esp32_camera", "time", "esp32_sdmmc"]
+DEPENDENCIES = ["esp32_camera_plus", "time", "esp32_sdmmc"]
 
 CONF_COLLECT_IMAGES = "collect_images"
 
@@ -20,7 +20,7 @@ CONFIG_SCHEMA = (
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(cv.polling_component_schema("30s"))
+    .extend(cv.polling_component_schema(".5s"))
 )
 
 

@@ -8,7 +8,7 @@
 #include "Bird-classifier_inferencing.h"
 #include "edge-impulse-sdk/dsp/image/processing.hpp"
 #include "esphome/components/esp32_sdmmc/esp32_sdmmc.h"
-#include "esphome/components/esp32_camera/esp32_camera.h"
+#include "esphome/components/esp32_camera_plus/esp32_camera.h"
 #include "esphome/core/log.h"
 #include <esp_camera.h>
 #include <cstdlib>
@@ -75,8 +75,21 @@ void BinaryBirdSensor::setup() {
           //ESP_LOGE(TAG, "    framebuffer moved to private member for later use: %d", framebuffer);
           //saveToSDcard(image->get_data_buffer(), image->get_data_length()); // <- Works
 
-          camera_fb_t *fb = image->get_raw_buffer(); //<- works
-          classify(fb);
+          ESP_LOGD(TAG, "Image Size: %u", image->get_data_length());
+          if(image->get_data_length()>15000){
+            //save high res photos if they come in as bird photos.
+            ESP_LOGI(TAG, "High Res image taken, saving Image and setting resolution back to low.");
+            saveToSDcard("/Birds", image->get_data_buffer(), image->get_data_length());
+            //change resolution back to low
+            esp32_camera::global_esp32_camera->change_camera_resolution(esp32_camera::ESP32_CAMERA_SIZE_320X240);
+          }else{
+            //Otherwise run classificationon them.
+            camera_fb_t *fb = image->get_raw_buffer(); //<- works
+            classify(fb);
+          }
+          
+
+
         }
         // if (this->image_ == nullptr){
         //   this->image_ = std::move(image);
@@ -85,8 +98,7 @@ void BinaryBirdSensor::setup() {
         // }
       }
     });
-
-    //this->last_update_ = millis();
+    this->last_update_ = millis();
 }
   
 void BinaryBirdSensor::update() {
@@ -104,8 +116,13 @@ void BinaryBirdSensor::update() {
     //   ESP_LOGE(TAG, "global camera instance is null!");
     // }
 
-    ESP_LOGE(TAG, "Requesting Image!");
-    esp32_camera::global_esp32_camera->request_image(esp32_camera::CameraRequester::API_REQUESTER);
+    uint32_t now = millis();
+    if(now-last_update_>30000){
+      ESP_LOGI(TAG, "Requesting Image!");
+      esp32_camera::global_esp32_camera->request_image(esp32_camera::CameraRequester::API_REQUESTER);
+        //only update this when we actually run.
+        this->last_update_ = now;
+    }
     // auto image = this->wait_for_image_();
 
     // if (!image) {
@@ -118,8 +135,6 @@ void BinaryBirdSensor::update() {
     //done with this image.
     //this->image_ = nullptr;
 
-    //only update this if a bird is found
-    //this->last_update_ = millis();
 }
 
 void BinaryBirdSensor::dump_config() {
@@ -153,7 +168,7 @@ void BinaryBirdSensor::classify( camera_fb_t *fb ){
     }
     
 
-    snapshot_buf = (uint8_t *)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
+    snapshot_buf = (uint8_t *)ps_malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
    // ESP_LOGE(TAG, "In Classify!");
     // check if allocation was successful
     if (snapshot_buf == nullptr) {
@@ -188,11 +203,16 @@ void BinaryBirdSensor::classify( camera_fb_t *fb ){
               result.timing.dsp, result.timing.classification, result.timing.anomaly);
 
     //bird found!
-    if(result.classification[0].value > 0.8)
+    if(result.classification[0].value > 0.5) //originally .80
     {
         ESP_LOGD(TAG, "**** Bird found with %f probability! ****", result.classification[0].value);
-        saveToSDcard("/Birds", fb->buf, fb->len);
-        //saveToSDcard(fb);
+        //Change to high change_camera_resolution
+        ESP_LOGI(TAG, "Changing mode to High Res");
+        esp32_camera::global_esp32_camera->change_camera_resolution(esp32_camera::ESP32_CAMERA_SIZE_640X480);
+        //Request image
+        ESP_LOGI(TAG, "Requesting Image!");
+        this->last_update_ = 0; //reset timer so next loop will request image.
+        //The handler will check for a high res photo and change the resolution back
     }else{
         ESP_LOGD(TAG, "**** Bird NOT found with %f probability! ****", result.classification[0].value);
     }
@@ -223,20 +243,20 @@ esphome::esp32_sdmmc::global_ESP32SDMMC->get_sd_lock(TAG);
 
   fs::FS &fs = SD_MMC;
   if (fs.mkdir(bird_path)) {
-    ESP_LOGI(TAG, "path created");
+    ESP_LOGV(TAG, "path created");
   } else {
-    ESP_LOGI(TAG, "path already created");
+    ESP_LOGV(TAG, "path already created");
   }
   String path = String(bird_path) + file_name;
-  ESP_LOGI(TAG, "Picture file name: %s", path.c_str());
+  ESP_LOGV(TAG, "Picture file name: %s", path.c_str());
 
   File file = fs.open(path.c_str(), FILE_WRITE);
 
   if (!file) {
-    ESP_LOGI(TAG, "Failed to open file in writing mode");
+    ESP_LOGV(TAG, "Failed to open file in writing mode");
   } else {
     file.write(frame_buf, buf_len);  // payload (image), payload length
-    ESP_LOGI(TAG, "Saved file to path: %s", path.c_str());
+    ESP_LOGV(TAG, "Saved file to path: %s", path.c_str());
   }
   file.close();
 

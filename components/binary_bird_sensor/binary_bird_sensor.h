@@ -6,7 +6,7 @@
 #include <freertos/semphr.h>
 
 #include "esphome/core/component.h"
-#include "esphome/components/esp32_camera/esp32_camera.h"
+#include "esphome/components/esp32_camera_plus/esp32_camera.h"
 #include "esphome/components/time/real_time_clock.h"
 #include <esp_camera.h>
 
@@ -39,7 +39,7 @@ class BinaryBirdSensor : public PollingComponent {
     
     camera_fb_t *framebuffer;
 
-//   uint32_t last_update_{0};
+   uint32_t last_update_{0};
    time::RealTimeClock *time_;
    bool isCollecting_;
 // };
