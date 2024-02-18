@@ -483,10 +483,13 @@ esp_err_t ESP32SDFM::delete_post_handler(httpd_req *req)
     SD_MMC.remove(filename);
 
     esphome::esp32_sdmmc::global_ESP32SDMMC->return_sd_lock(TAG);
-
     /* Redirect onto root to see the updated file list */
     httpd_resp_set_status(req, "303 See Other");
-    httpd_resp_set_hdr(req, "Location", "/");
+
+    char *lastSlashPtr = strrchr(filepath, '/');
+    char *parent = strndup(filepath, ((size_t)lastSlashPtr) - ((size_t)&filepath)+1);
+
+    httpd_resp_set_hdr(req, "Location", parent);
 #ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
     httpd_resp_set_hdr(req, "Connection", "close");
 #endif
