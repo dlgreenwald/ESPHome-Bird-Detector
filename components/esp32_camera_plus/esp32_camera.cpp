@@ -18,6 +18,19 @@ void ESP32Camera::setup() {
   /* initialize time to now */
   this->last_update_ = millis();
 
+  //Store current settings that we are about to override temporarally
+  framesize_t init_frame_size = this->config_.frame_size;
+  int init_jpeg_quality = this->config_.jpeg_quality;
+  size_t init_fb_count = this->config_.fb_count;
+  camera_grab_mode_t init_grab_Mode = this->config_.grab_mode;
+
+  //Init with Max Resolution and high JPEG quality 
+  //for larger pre-allocated frame buffer.  Assuming psram, as we indicated it's required
+  this->config_.frame_size = FRAMESIZE_UXGA;
+  this->config_.jpeg_quality = 10;
+  this->config_.fb_count = 2;
+  this->config_.grab_mode = CAMERA_GRAB_LATEST;
+
   /* initialize camera */
   esp_err_t err = esp_camera_init(&this->config_);
   if (err != ESP_OK) {
@@ -26,6 +39,12 @@ void ESP32Camera::setup() {
     this->mark_failed();
     return;
   }
+
+  //Put default settings back
+  this->config_.frame_size = init_frame_size;
+  this->config_.jpeg_quality = init_jpeg_quality;
+  this->config_.fb_count = init_fb_count;
+  this->config_.grab_mode = init_grab_Mode;
 
   /* initialize camera parameters */
   this->update_camera_parameters();
@@ -376,41 +395,19 @@ void ESP32Camera::update_camera_parameters() {
   s->set_wb_mode(s, (int) this->wb_mode_);  // 0 to 4
   /* update test pattern */
   s->set_colorbar(s, this->test_pattern_);
+  /* update resolution*/
+  s->set_framesize(s, this->config_.frame_size);
+  s->set_quality(s, this->config_.jpeg_quality);
 }
 
   boolean ESP32Camera::change_camera_resolution(ESP32CameraFrameSize size){
     //set local config in new framesize
-
-    //Still seems to crash.  Maybe deinit, and reinit the sensor?  Maybe try a lower res rather than full res image first.
-
-    //deinit the camera
-    ESP_LOGE(TAG, "Deinit Camera");
-    esp_err_t err = esp_camera_deinit();
-
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "esp_camera_deinit failed: %s", esp_err_to_name(err));
-      this->init_error_ = err;
-      this->mark_failed();
-      return false;
-    }
-    
-    //change settings
-    ESP_LOGE(TAG, "Changing FrameSize");
+    ESP_LOGI(TAG, "Changing FrameSize");
     this->set_frame_size(size);
+    this->update_camera_parameters();
+    ESP_LOGV(TAG, "camera sensor parameters updated");
 
-    //triniy the camera with new preferences
-    /* initialize camera */
-    ESP_LOGE(TAG, "re-init Camera with new settings");
-    err = esp_camera_init(&this->config_);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "esp_camera_init failed: %s", esp_err_to_name(err));
-      this->init_error_ = err;
-      this->mark_failed();
-      return false;
-    }
-    ESP_LOGE(TAG, "camera init complete");
-
-    ESP_LOGE(TAG, "Flush FrameBuffer");
+    ESP_LOGV(TAG, "Flush FrameBuffer"); //Is this actually needed?
     //flush the old resolution frames
     for (int i = 0; i < this->config_.fb_count; i++) {
       int retries = 3;
